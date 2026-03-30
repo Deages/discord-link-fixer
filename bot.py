@@ -17,7 +17,7 @@ URL_REPLACEMENTS = {
     "bsky.app": "fxbsky.app",
     "facebook.com": "facebed.app",
     "tiktok.com": "vxtiktok.com",
-    "reddit.com": "vxreddit.com",  # Using vxreddit as requested for better v.redd.it compatibility
+    "reddit.com": "rxddit.com", # Standard reddit posts work well with rxddit
 }
 
 # Regex patterns for paths that usually indicate a video or media post.
@@ -27,7 +27,7 @@ MEDIA_PATTERNS = {
     "twitter.com": [r"/status/"],
     "x.com": [r"/status/"],
     "facebook.com": [r"/videos?/", r"/reel/", r"/watch/", r"story\.php"],
-    "reddit.com": [r"/comments/", r"/r/.+/s/"], # Support for standard and short-share links
+    "reddit.com": [r"/comments/", r"/r/.+/s/"], 
     "bsky.app": [r"/post/"],
 }
 
@@ -50,7 +50,7 @@ async def on_ready():
     print(f'Logged in as {bot.user.name}')
     if not update_heartbeat.is_running():
         update_heartbeat.start()
-    print("Link Fixer active: v.redd.it reformatting enabled.")
+    print("Link Fixer active: Enhanced v.redd.it (ddreddit) support enabled.")
 
 @bot.event
 async def on_message(message):
@@ -68,18 +68,17 @@ async def on_message(message):
     for full_url, domain, path in urls:
         clean_domain = domain.lower().replace("www.", "")
         
-        # SPECIAL CASE: v.redd.it (Direct video URLs)
-        # These need to be converted to a post format for vxreddit to work.
+        # SPECIAL CASE: v.redd.it
+        # Re-routing to ddreddit.com which handles direct v.redd.it IDs more reliably on Discord
         if clean_domain == "v.redd.it":
             video_id = path.strip("/")
-            # Convert https://v.redd.it/ID to https://vxreddit.com/ID
-            # vxreddit handles the 'v.redd.it' ID as a direct path if 'www' is omitted
-            fixed_url = f"https://vxreddit.com/{video_id}"
+            # ddreddit.com/v/ID is the specific endpoint for v.redd.it IDs
+            fixed_url = f"https://ddreddit.com/v/{video_id}"
             new_content = new_content.replace(full_url, fixed_url)
             found_match = True
             continue
 
-        # STANDARD CASE: Domain Replacement
+        # STANDARD CASE: Domain Replacement for other platforms
         if clean_domain in URL_REPLACEMENTS:
             patterns = MEDIA_PATTERNS.get(clean_domain, [])
             is_video_link = any(re.search(p, path, re.IGNORECASE) for p in patterns) if path else False
@@ -92,6 +91,7 @@ async def on_message(message):
 
     if found_match:
         try:
+            # Post fixed content and credit the original user
             credit_text = f"Shared by: **{message.author.display_name}**\n{new_content}"
             await message.channel.send(credit_text)
             await message.delete()
