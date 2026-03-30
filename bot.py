@@ -8,9 +8,10 @@ from pathlib import Path
 from discord.ext import commands, tasks
 
 # --- VERSION TRACKING ---
-# v5.6.0 - Added TikTok local download/upload support due to vxtiktok shutdown.
-# Unified download logic for FB and TikTok. Removed deprecated compose versioning.
-VERSION = "5.6.0"
+# v1.0.0 - Official Release. 
+# Removed TikTok processing as native embeds are currently functional.
+# Maintains local processing for Facebook and standard rewrites for others.
+VERSION = "1.0.0"
 
 # --- CONFIGURATION ---
 TOKEN_FILE = "/app/discordtoken.txt"
@@ -23,14 +24,13 @@ URL_REPLACEMENTS = {
     "twitter.com": "fxtwitter.com",
     "x.com": "fixupx.com",
     "bsky.app": "fxbsky.app",
-    "facebook.com": "ezfacebook.com", # Fallback
+    "facebook.com": "ezfacebook.com", # Fallback for FB
     "reddit.com": "vxreddit.com",
 }
 
 # Regex patterns for paths that usually indicate a video or media post.
 MEDIA_PATTERNS = {
     "instagram.com": [r"/reels?/", r"/p/", r"/tv/"],
-    "tiktok.com": [r"/video/", r"/v/", r"/t/"],
     "twitter.com": [r"/status/"],
     "x.com": [r"/status/"],
     "facebook.com": [r"/videos?/", r"/reel/", r"/watch/", r"/share/", r"story\.php"],
@@ -38,18 +38,19 @@ MEDIA_PATTERNS = {
     "reddit.com": [r"/comments/", r"/r/.+/s/"], 
     "bsky.app": [r"/post/"],
 }
+# NOTE: TikTok URL processing was removed in v1.0.0 because native Discord embeds now work reliably.
 
 # --- BOT SETUP ---
 intents = discord.Intents.default()
 intents.message_content = True 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Ensure download directory exists for temporary files
+# Ensure download directory exists for temporary media storage
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 def download_video(url, prefix):
-    """Synchronous function to download FB/TikTok video via yt-dlp."""
-    # We cap at 25M to stay within standard Discord upload limits
+    """Synchronous function to download video via yt-dlp (primarily for Facebook)."""
+    # Capped at 25M for standard Discord upload limits
     ydl_opts = {
         'format': 'bestvideo[ext=mp4][filesize<25M]+bestaudio[ext=m4a]/best[ext=mp4][filesize<25M]/best',
         'outtmpl': f'{DOWNLOAD_DIR}/{prefix}_%(id)s.%(ext)s',
@@ -85,7 +86,7 @@ async def on_ready():
     print("------------------------------------------")
     print(f"LINK FIXER BOT - VERSION {VERSION}")
     print(f"Logged in as: {bot.user.name}")
-    print("Status: Active - FB & TikTok Downloading Enabled")
+    print("Status: Active - Official Release")
     print("------------------------------------------")
     if not update_heartbeat.is_running():
         update_heartbeat.start()
@@ -115,30 +116,26 @@ async def on_message(message):
                 found_match = True
             continue
 
-        # DOWNLOAD LOGIC: Facebook and TikTok
-        # We handle tiktok.com, vm.tiktok.com, and vt.tiktok.com
-        if any(x in clean_domain for x in ["facebook.com", "fb.watch", "tiktok.com"]):
+        # DOWNLOAD LOGIC: Facebook (and shorteners)
+        if any(x in clean_domain for x in ["facebook.com", "fb.watch"]):
             patterns = MEDIA_PATTERNS.get(clean_domain, [])
-            # TikTok short-links (vm/vt) usually don't have long paths, so we trigger on domain
-            is_download_target = any(re.search(p, path, re.IGNORECASE) for p in patterns) if path else ("tiktok.com" in clean_domain or "fb.watch" in clean_domain)
+            is_fb_video = any(re.search(p, path, re.IGNORECASE) for p in patterns) if path else (clean_domain == "fb.watch")
             
-            if is_download_target:
+            if is_fb_video:
                 try:
-                    prefix = "tt" if "tiktok" in clean_domain else "fb"
                     # Run the download in a separate thread to keep the bot responsive
-                    file_path = await asyncio.to_thread(download_video, full_url, prefix)
+                    file_path = await asyncio.to_thread(download_video, full_url, "fb")
                     
                     if os.path.exists(file_path):
                         credit_text = f"Shared by: **{message.author.display_name}**\nSource: <{full_url}>"
                         await message.channel.send(content=credit_text, file=discord.File(file_path))
                         
-                        # Cleanup local storage immediately
+                        # Immediate cleanup
                         os.remove(file_path)
                         await message.delete()
                         return 
                 except Exception as e:
-                    print(f"Download failed for {full_url}: {e}")
-                    # If download fails, it falls through to standard rewrite if applicable
+                    print(f"Facebook processing failed: {e}")
 
         # STANDARD CASE: Other platforms (Insta, Twitter, Bluesky, Reddit)
         if clean_domain in URL_REPLACEMENTS:
