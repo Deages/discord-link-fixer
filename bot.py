@@ -18,6 +18,7 @@ URL_REPLACEMENTS = {
     "facebook.com": "facebed.app",
     "tiktok.com": "vxtiktok.com",
     "reddit.com": "rxddit.com",
+    "v.redd.it": "rxddit.com",  # Added support for Reddit direct video links
 }
 
 # Regex patterns for paths that usually indicate a video or media post.
@@ -29,6 +30,7 @@ MEDIA_PATTERNS = {
     "x.com": [r"/status/"],
     "facebook.com": [r"/videos?/", r"/reel/", r"/watch/", r"story\.php"],
     "reddit.com": [r"/comments/"],
+    "v.redd.it": [r"/"],  # v.redd.it is exclusively for video hosting, so any path counts
     "bsky.app": [r"/post/"],
 }
 
@@ -51,7 +53,7 @@ async def on_ready():
     print(f'Logged in as {bot.user.name}')
     if not update_heartbeat.is_running():
         update_heartbeat.start()
-    print("Link Fixer is active with Video-Path filtering.")
+    print("Link Fixer is active with expanded Reddit and Video-Path filtering.")
 
 @bot.event
 async def on_message(message):
@@ -83,6 +85,7 @@ async def on_message(message):
             if is_video_link:
                 replacement_domain = URL_REPLACEMENTS[clean_domain]
                 # Replace the original domain with the fixed one
+                # This correctly turns v.redd.it/xyz into rxddit.com/xyz
                 fixed_url = full_url.replace(domain, replacement_domain, 1)
                 # Update the message content with the fixed URL
                 new_content = new_content.replace(full_url, fixed_url)
