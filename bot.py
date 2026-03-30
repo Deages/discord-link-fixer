@@ -7,7 +7,7 @@ from pathlib import Path
 from discord.ext import commands, tasks
 
 # --- VERSION TRACKING ---
-VERSION = "5.2.0"
+VERSION = "5.3.0"
 
 # --- CONFIGURATION ---
 TOKEN_FILE = "/app/discordtoken.txt"
@@ -19,8 +19,8 @@ URL_REPLACEMENTS = {
     "twitter.com": "fxtwitter.com",
     "x.com": "fixupx.com",
     "bsky.app": "fxbsky.app",
-    "facebook.com": "fxfacebook.com",
-    "fb.watch": "fxfacebook.com",  # Added fb.watch shortener support
+    "facebook.com": "ezfacebook.com", # Swapped to ezfacebook for better Reel support
+    "fb.watch": "ezfacebook.com",     # Supporting the shortener
     "tiktok.com": "vxtiktok.com",
     "reddit.com": "vxreddit.com",
 }
@@ -32,7 +32,7 @@ MEDIA_PATTERNS = {
     "twitter.com": [r"/status/"],
     "x.com": [r"/status/"],
     "facebook.com": [r"/videos?/", r"/reel/", r"/watch/", r"story\.php"],
-    "fb.watch": [r"/"], # fb.watch is exclusively for video content
+    "fb.watch": [r"/"], 
     "reddit.com": [r"/comments/", r"/r/.+/s/"], 
     "bsky.app": [r"/post/"],
 }
@@ -46,7 +46,6 @@ async def resolve_reddit_redirect(url):
     """Follows v.redd.it redirects to find the full Reddit post URL."""
     try:
         async with aiohttp.ClientSession() as session:
-            # Use HEAD request for efficiency
             async with session.head(url, allow_redirects=True, timeout=5) as response:
                 resolved_url = str(response.url)
                 if "reddit.com/r/" in resolved_url:
@@ -55,10 +54,8 @@ async def resolve_reddit_redirect(url):
         print(f"Error resolving redirect for {url}: {e}")
     return None
 
-# Health check heartbeat task
 @tasks.loop(seconds=30)
 async def update_heartbeat():
-    """Updates a file timestamp so Docker healthcheck knows the bot is alive."""
     try:
         Path(HEARTBEAT_FILE).touch()
     except Exception as e:
@@ -69,7 +66,7 @@ async def on_ready():
     print("------------------------------------------")
     print(f"LINK FIXER BOT - VERSION {VERSION}")
     print(f"Logged in as: {bot.user.name}")
-    print("Status: Active (FB.Watch + Reddit Redirects)")
+    print("Status: Active (EZFacebook + Reddit Fix)")
     print("------------------------------------------")
     if not update_heartbeat.is_running():
         update_heartbeat.start()
@@ -83,14 +80,13 @@ async def on_message(message):
     new_content = content
     found_match = False
 
-    # Standard URL extraction
     url_regex = r'(https?://(?:www\.)?([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})(/[^\s]*)?)'
     urls = re.findall(url_regex, content, re.IGNORECASE)
 
     for full_url, domain, path in urls:
         clean_domain = domain.lower().replace("www.", "")
         
-        # ADVANCED PROCESSING: v.redd.it
+        # Reddit Redirect Handling
         if clean_domain == "v.redd.it":
             resolved = await resolve_reddit_redirect(full_url)
             if resolved:
@@ -99,14 +95,13 @@ async def on_message(message):
                 found_match = True
             continue
 
-        # STANDARD CASE: Other platforms (including fb.watch)
+        # General Domain Replacement
         if clean_domain in URL_REPLACEMENTS:
             patterns = MEDIA_PATTERNS.get(clean_domain, [])
             is_video_link = any(re.search(p, path, re.IGNORECASE) for p in patterns) if path else False
             
             if is_video_link:
                 replacement_domain = URL_REPLACEMENTS[clean_domain]
-                # Handles swapping domain for the fixed version
                 fixed_url = full_url.replace(domain, replacement_domain, 1)
                 new_content = new_content.replace(full_url, fixed_url)
                 found_match = True
