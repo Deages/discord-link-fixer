@@ -1,4 +1,4 @@
-# Discord Link Fixer (v1.1.1)
+# Discord Embed Link Fixer 
 
 A robust, self-healing Discord bot designed to "fix" social media links so they embed correctly in text channels. This bot is specifically optimized for **Home Lab** environments using **Docker** and **Dockge**, providing local video processing for platforms with aggressive embed blocks.
 
