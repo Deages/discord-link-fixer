@@ -9,10 +9,10 @@ from pathlib import Path
 from discord.ext import commands, tasks
 
 # --- VERSION TRACKING ---
-# v1.1.0 - Startup Validation Suite & Health Diagnostics
-# Adds automated checks for binaries (ffmpeg, yt-dlp), folder permissions, 
-# and real-time connectivity tests for all configured social media proxies.
-VERSION = "1.1.0"
+# v1.1.1 - Removed Facebook proxy fallbacks. Refined connectivity checks.
+# Removed ezfacebook.com as local downloading is now the primary method.
+# Updated validation logic to handle proxies without root index pages (e.g. kkinstagram).
+VERSION = "1.1.1"
 
 # --- CONFIGURATION ---
 TOKEN_FILE = "/app/discordtoken.txt"
@@ -20,12 +20,12 @@ HEARTBEAT_FILE = "/app/heartbeat.txt"
 DOWNLOAD_DIR = "/app/downloads"
 
 # Domain mapping for embed-friendly replacements
+# Removed Facebook entries here as we handle them via local download/upload.
 URL_REPLACEMENTS = {
     "instagram.com": "kkinstagram.com",
     "twitter.com": "fxtwitter.com",
     "x.com": "fixupx.com",
     "bsky.app": "fxbsky.app",
-    "facebook.com": "ezfacebook.com",
     "reddit.com": "vxreddit.com",
 }
 
@@ -39,7 +39,6 @@ MEDIA_PATTERNS = {
     "reddit.com": [r"/comments/", r"/r/.+/s/"], 
     "bsky.app": [r"/post/"],
 }
-# NOTE: TikTok URL processing remains removed as native Discord embeds are functional.
 
 # --- BOT SETUP ---
 intents = discord.Intents.default()
@@ -75,10 +74,14 @@ async def run_startup_validation():
         for original, replacement in URL_REPLACEMENTS.items():
             test_url = f"https://{replacement}"
             try:
-                # We use a HEAD request to check if the service is alive without downloading data
-                async with session.head(test_url, timeout=5, allow_redirects=True) as resp:
-                    if resp.status < 400:
-                        print(f"{replacement.ljust(18)}: ✅ ONLINE (HTTP {resp.status})")
+                # Switched to GET because some proxies block HEAD or return 404 on root
+                async with session.get(test_url, timeout=5, allow_redirects=True) as resp:
+                    # If we get a 200, it's perfect. 
+                    # If we get a 404, the server IS online but has no landing page (common for proxies).
+                    if resp.status == 200:
+                        print(f"{replacement.ljust(18)}: ✅ ONLINE (HTTP 200)")
+                    elif resp.status == 404:
+                        print(f"{replacement.ljust(18)}: ✅ ONLINE (READY - HTTP 404)")
                     else:
                         print(f"{replacement.ljust(18)}: ⚠️ UNSTABLE (HTTP {resp.status})")
             except Exception:
@@ -155,7 +158,7 @@ async def on_message(message):
                 found_match = True
             continue
 
-        # Facebook Download logic
+        # Facebook Download logic (Now the exclusive method for FB)
         if any(x in clean_domain for x in ["facebook.com", "fb.watch"]):
             patterns = MEDIA_PATTERNS.get(clean_domain, [])
             is_fb_video = any(re.search(p, path, re.IGNORECASE) for p in patterns) if path else (clean_domain == "fb.watch")
@@ -170,7 +173,7 @@ async def on_message(message):
                         await message.delete()
                         return 
                 except Exception as e:
-                    print(f"Facebook processing failed: {e}")
+                    print(f"Facebook download failed for {full_url}: {e}")
 
         # Standard Domain Rewrites
         if clean_domain in URL_REPLACEMENTS:
