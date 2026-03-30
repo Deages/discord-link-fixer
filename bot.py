@@ -17,20 +17,17 @@ URL_REPLACEMENTS = {
     "bsky.app": "fxbsky.app",
     "facebook.com": "facebed.app",
     "tiktok.com": "vxtiktok.com",
-    "reddit.com": "rxddit.com",
-    "v.redd.it": "rxddit.com",  # Added support for Reddit direct video links
+    "reddit.com": "vxreddit.com",  # Using vxreddit as requested for better v.redd.it compatibility
 }
 
 # Regex patterns for paths that usually indicate a video or media post.
-# This ensures the bot only triggers on content, not profile links.
 MEDIA_PATTERNS = {
     "instagram.com": [r"/reels?/", r"/p/", r"/tv/"],
     "tiktok.com": [r"/video/", r"/v/", r"/t/"],
     "twitter.com": [r"/status/"],
     "x.com": [r"/status/"],
     "facebook.com": [r"/videos?/", r"/reel/", r"/watch/", r"story\.php"],
-    "reddit.com": [r"/comments/"],
-    "v.redd.it": [r"/"],  # v.redd.it is exclusively for video hosting, so any path counts
+    "reddit.com": [r"/comments/", r"/r/.+/s/"], # Support for standard and short-share links
     "bsky.app": [r"/post/"],
 }
 
@@ -53,11 +50,10 @@ async def on_ready():
     print(f'Logged in as {bot.user.name}')
     if not update_heartbeat.is_running():
         update_heartbeat.start()
-    print("Link Fixer is active with expanded Reddit and Video-Path filtering.")
+    print("Link Fixer active: v.redd.it reformatting enabled.")
 
 @bot.event
 async def on_message(message):
-    # Ignore bot's own messages to prevent loops
     if message.author == bot.user:
         return
 
@@ -65,51 +61,47 @@ async def on_message(message):
     new_content = content
     found_match = False
 
-    # Regex to extract URLs from the message for individual inspection
-    # Captures: 1. Full URL, 2. Domain, 3. Path
+    # Standard URL extraction
     url_regex = r'(https?://(?:www\.)?([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})(/[^\s]*)?)'
     urls = re.findall(url_regex, content, re.IGNORECASE)
 
     for full_url, domain, path in urls:
-        # Normalize domain (lowercase and remove 'www.' for matching)
         clean_domain = domain.lower().replace("www.", "")
         
+        # SPECIAL CASE: v.redd.it (Direct video URLs)
+        # These need to be converted to a post format for vxreddit to work.
+        if clean_domain == "v.redd.it":
+            video_id = path.strip("/")
+            # Convert https://v.redd.it/ID to https://vxreddit.com/ID
+            # vxreddit handles the 'v.redd.it' ID as a direct path if 'www' is omitted
+            fixed_url = f"https://vxreddit.com/{video_id}"
+            new_content = new_content.replace(full_url, fixed_url)
+            found_match = True
+            continue
+
+        # STANDARD CASE: Domain Replacement
         if clean_domain in URL_REPLACEMENTS:
-            # Get the video path patterns for this specific domain
             patterns = MEDIA_PATTERNS.get(clean_domain, [])
-            
-            # Check if the URL path matches any of our video/media triggers
-            # We use re.search on the path string (e.g., '/reels/XYZ/')
             is_video_link = any(re.search(p, path, re.IGNORECASE) for p in patterns) if path else False
             
             if is_video_link:
                 replacement_domain = URL_REPLACEMENTS[clean_domain]
-                # Replace the original domain with the fixed one
-                # This correctly turns v.redd.it/xyz into rxddit.com/xyz
                 fixed_url = full_url.replace(domain, replacement_domain, 1)
-                # Update the message content with the fixed URL
                 new_content = new_content.replace(full_url, fixed_url)
                 found_match = True
 
     if found_match:
         try:
-            # Post the corrected link and credit the original user by nickname
             credit_text = f"Shared by: **{message.author.display_name}**\n{new_content}"
             await message.channel.send(credit_text)
-            
-            # Delete the original un-embedded link
             await message.delete()
         except Exception as e:
-            print(f"Error handling message from {message.author.name}: {e}")
+            print(f"Error handling message: {e}")
 
 if __name__ == "__main__":
     if os.path.exists(TOKEN_FILE):
         with open(TOKEN_FILE, 'r') as f:
             token = f.read().strip()
-        
-        try:
-            bot.run(token)
-        except Exception as e:
-            print(f"Fatal connection error: {e}")
+        bot.run(token)
     else:
-        print(f"CRITICAL: {TOKEN_FILE} not found. Ensure /projects/link-fixer/ is set up.")
+        print(f"CRITICAL: {TOKEN_FILE} not found.")
