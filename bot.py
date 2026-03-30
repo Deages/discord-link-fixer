@@ -2,8 +2,12 @@ import discord
 import re
 import os
 import asyncio
+import aiohttp
 from pathlib import Path
 from discord.ext import commands, tasks
+
+# --- VERSION TRACKING ---
+VERSION = "5.0.0"
 
 # --- CONFIGURATION ---
 TOKEN_FILE = "/app/discordtoken.txt"
@@ -17,7 +21,7 @@ URL_REPLACEMENTS = {
     "bsky.app": "fxbsky.app",
     "facebook.com": "facebed.app",
     "tiktok.com": "vxtiktok.com",
-    "reddit.com": "rxddit.com", # Standard reddit posts work well with rxddit
+    "reddit.com": "vxreddit.com",
 }
 
 # Regex patterns for paths that usually indicate a video or media post.
@@ -36,6 +40,19 @@ intents = discord.Intents.default()
 intents.message_content = True 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+async def resolve_reddit_redirect(url):
+    """Follows v.redd.it redirects to find the full Reddit post URL."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            # We only need the headers to find the 'Location' redirect
+            async with session.head(url, allow_redirects=True, timeout=5) as response:
+                resolved_url = str(response.url)
+                if "reddit.com/r/" in resolved_url:
+                    return resolved_url
+    except Exception as e:
+        print(f"Error resolving redirect for {url}: {e}")
+    return None
+
 # Health check heartbeat task
 @tasks.loop(seconds=30)
 async def update_heartbeat():
@@ -47,10 +64,13 @@ async def update_heartbeat():
 
 @bot.event
 async def on_ready():
-    print(f'Logged in as {bot.user.name}')
+    print("------------------------------------------")
+    print(f"LINK FIXER BOT - VERSION {VERSION}")
+    print(f"Logged in as: {bot.user.name}")
+    print("Status: Active and monitoring channels")
+    print("------------------------------------------")
     if not update_heartbeat.is_running():
         update_heartbeat.start()
-    print("Link Fixer active: Enhanced v.redd.it (ddreddit) support enabled.")
 
 @bot.event
 async def on_message(message):
@@ -68,17 +88,17 @@ async def on_message(message):
     for full_url, domain, path in urls:
         clean_domain = domain.lower().replace("www.", "")
         
-        # SPECIAL CASE: v.redd.it
-        # Re-routing to ddreddit.com which handles direct v.redd.it IDs more reliably on Discord
+        # ADVANCED PROCESSING: v.redd.it
         if clean_domain == "v.redd.it":
-            video_id = path.strip("/")
-            # ddreddit.com/v/ID is the specific endpoint for v.redd.it IDs
-            fixed_url = f"https://ddreddit.com/v/{video_id}"
-            new_content = new_content.replace(full_url, fixed_url)
-            found_match = True
+            resolved = await resolve_reddit_redirect(full_url)
+            if resolved:
+                # Once resolved to a normal reddit.com URL, replace domain with vxreddit
+                fixed_url = resolved.replace("reddit.com", "vxreddit.com")
+                new_content = new_content.replace(full_url, fixed_url)
+                found_match = True
             continue
 
-        # STANDARD CASE: Domain Replacement for other platforms
+        # STANDARD CASE: Other platforms
         if clean_domain in URL_REPLACEMENTS:
             patterns = MEDIA_PATTERNS.get(clean_domain, [])
             is_video_link = any(re.search(p, path, re.IGNORECASE) for p in patterns) if path else False
@@ -91,7 +111,6 @@ async def on_message(message):
 
     if found_match:
         try:
-            # Post fixed content and credit the original user
             credit_text = f"Shared by: **{message.author.display_name}**\n{new_content}"
             await message.channel.send(credit_text)
             await message.delete()
