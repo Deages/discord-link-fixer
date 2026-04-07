@@ -10,7 +10,7 @@ from discord.ext import commands, tasks
 
 # --- VERSION TRACKING ---
 # v1.1.2 - Replaced kkinstagram to kksave per domain notice
-VERSION = "1.1.1"
+VERSION = "1.1.2"
 
 # --- CONFIGURATION ---
 TOKEN_FILE = "/app/discordtoken.txt"
