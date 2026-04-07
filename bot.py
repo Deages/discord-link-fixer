@@ -22,7 +22,7 @@ DOWNLOAD_DIR = "/app/downloads"
 # Domain mapping for embed-friendly replacements
 # Removed Facebook entries here as we handle them via local download/upload.
 URL_REPLACEMENTS = {
-    "instagram.com": "kkinstagram.com",
+    "instagram.com": "kksave.com",
     "twitter.com": "fxtwitter.com",
     "x.com": "fixupx.com",
     "bsky.app": "fxbsky.app",
