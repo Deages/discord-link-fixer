@@ -9,9 +9,7 @@ from pathlib import Path
 from discord.ext import commands, tasks
 
 # --- VERSION TRACKING ---
-# v1.1.1 - Removed Facebook proxy fallbacks. Refined connectivity checks.
-# Removed ezfacebook.com as local downloading is now the primary method.
-# Updated validation logic to handle proxies without root index pages (e.g. kkinstagram).
+# v1.1.2 - Replaced kkinstagram to kksave per domain notice
 VERSION = "1.1.1"
 
 # --- CONFIGURATION ---
