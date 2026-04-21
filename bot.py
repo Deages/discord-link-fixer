@@ -10,9 +10,9 @@ from pathlib import Path
 from discord.ext import commands, tasks
 
 # --- VERSION TRACKING ---
-# v1.2.2 
-# Using vxinstagram.com instead of eeinstagram.com.
-VERSION = "1.2.2"
+# v1.2.3 - Enhanced update notification to include version tracking details.
+VERSION = "1.2.3"
+VERSION_NOTES = "Enhanced update notification to include version tracking details."
 
 # --- CONFIGURATION ---
 TOKEN_FILE = "/app/discordtoken.txt"
@@ -183,7 +183,13 @@ async def on_ready():
     if UPDATE_CHANNEL_ID:
         channel = bot.get_channel(UPDATE_CHANNEL_ID)
         if channel:
-            await channel.send(f"✅ **Link Fixer Online** (v{VERSION})\nDiagnostics complete. Proxy monitoring active (10m interval).")
+            # Updated Discord post to include VERSION_NOTES
+            update_msg = (
+                f"✅ **Link Fixer Online** (v{VERSION})\n"
+                f"**Latest Changes:** `{VERSION_NOTES}`\n"
+                f"Diagnostics complete. Proxy monitoring active (10m interval)."
+            )
+            await channel.send(update_msg)
 
 @bot.event
 async def on_message(message):
