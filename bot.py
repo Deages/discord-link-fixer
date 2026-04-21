@@ -9,8 +9,8 @@ from pathlib import Path
 from discord.ext import commands, tasks
 
 # --- VERSION TRACKING ---
-# v1.1.4 - Replaced vxinstagram.com with eeinstagram.com
-VERSION = "1.1.4"
+# v1.1.5 - Implemented Instagram URL 'cleaning' (stripping tracking parameters/query strings).
+VERSION = "1.1.5"
 
 # --- CONFIGURATION ---
 TOKEN_FILE = "/app/discordtoken.txt"
@@ -181,6 +181,11 @@ async def on_message(message):
             if is_video_link:
                 replacement_domain = URL_REPLACEMENTS[clean_domain]
                 fixed_url = full_url.replace(domain, replacement_domain, 1)
+                
+                # CLEANING: Strip tracking info from Instagram links (anything from '?' onwards)
+                if clean_domain == "instagram.com":
+                    fixed_url = fixed_url.split('?')[0]
+                
                 new_content = new_content.replace(full_url, fixed_url)
                 found_match = True
 
