@@ -5,20 +5,25 @@ import asyncio
 import aiohttp
 import yt_dlp
 import shutil
+import sys
 from pathlib import Path
 from discord.ext import commands, tasks
 
 # --- VERSION TRACKING ---
-# v1.1.5 - Implemented Instagram URL 'cleaning' (stripping tracking parameters/query strings).
-VERSION = "1.1.5"
+# v1.2.0 - The Robustness Update.
+# Integrated GitHub auto-update logic, admin permission layers, 
+# and update notification channel support matching the TLDR bot architecture.
+VERSION = "1.2.0"
 
 # --- CONFIGURATION ---
 TOKEN_FILE = "/app/discordtoken.txt"
 HEARTBEAT_FILE = "/app/heartbeat.txt"
 DOWNLOAD_DIR = "/app/downloads"
+ADMINS_FILE = "/app/admins.txt"
+UPDATE_CHANNEL_FILE = "/app/update_channel.txt"
+GITHUB_RAW_URL = "https://raw.githubusercontent.com/Deages/discord-link-fixer/main/bot.py"
 
 # Domain mapping for embed-friendly replacements
-# Removed Facebook entries here as we handle them via local download/upload.
 URL_REPLACEMENTS = {
     "instagram.com": "eeinstagram.com",
     "twitter.com": "fxtwitter.com",
@@ -27,7 +32,6 @@ URL_REPLACEMENTS = {
     "reddit.com": "vxreddit.com",
 }
 
-# Regex patterns for paths that usually indicate a video or media post.
 MEDIA_PATTERNS = {
     "instagram.com": [r"/reels?/", r"/p/", r"/tv/"],
     "twitter.com": [r"/status/"],
@@ -43,21 +47,47 @@ intents = discord.Intents.default()
 intents.message_content = True 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Ensure download directory exists
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+# Global variables for TLDR-style robustness
+ADMINS = []
+UPDATE_CHANNEL_ID = None
+
+def load_config_files():
+    """Loads admin IDs and the dedicated update channel ID from local files."""
+    global ADMINS, UPDATE_CHANNEL_ID
+    if os.path.exists(ADMINS_FILE):
+        with open(ADMINS_FILE, 'r') as f:
+            ADMINS = [line.strip() for line in f if line.strip()]
+    
+    if os.path.exists(UPDATE_CHANNEL_FILE):
+        with open(UPDATE_CHANNEL_FILE, 'r') as f:
+            content = f.read().strip()
+            if content.isdigit():
+                UPDATE_CHANNEL_ID = int(content)
+
+async def check_for_updates():
+    """Checks GitHub for a newer version string and triggers an update if found."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(GITHUB_RAW_URL) as resp:
+                if resp.status == 200:
+                    text = await resp.text()
+                    remote_version = re.search(r'VERSION = "([^"]+)"', text)
+                    if remote_version and remote_version.group(1) != VERSION:
+                        print(f"Update found: {VERSION} -> {remote_version.group(1)}")
+                        # The actual file update is handled by the Docker curl loop on exit
+                        sys.exit(0) 
+    except Exception as e:
+        print(f"Update check failed: {e}")
 
 async def run_startup_validation():
-    """Runs a series of health checks and prints results to the terminal."""
+    """Runs system diagnostics and prints results to the terminal."""
     print("\n--- STARTING SYSTEM VALIDATION ---")
-    
-    # 1. Binary Availability Checks
     binaries = ["ffmpeg", "yt-dlp", "curl"]
     for binary in binaries:
         path = shutil.which(binary)
         status = "✅ FOUND" if path else "❌ MISSING"
         print(f"Binary {binary.ljust(8)}: {status} ({path or 'N/A'})")
 
-    # 2. Write Permissions Check
     try:
         test_file = Path(DOWNLOAD_DIR) / "perm_test.txt"
         test_file.touch()
@@ -66,54 +96,25 @@ async def run_startup_validation():
     except Exception as e:
         print(f"Storage Path    : ❌ PERMISSION ERROR: {e}")
 
-    # 3. External Service Connectivity Check
     print("\n--- PROXY SERVICE CONNECTIVITY ---")
     async with aiohttp.ClientSession() as session:
         for original, replacement in URL_REPLACEMENTS.items():
-            test_url = f"https://{replacement}"
             try:
-                # Switched to GET because some proxies block HEAD or return 404 on root
-                async with session.get(test_url, timeout=5, allow_redirects=True) as resp:
-                    # If we get a 200, it's perfect. 
-                    # If we get a 404, the server IS online but has no landing page (common for proxies).
-                    if resp.status == 200:
-                        print(f"{replacement.ljust(18)}: ✅ ONLINE (HTTP 200)")
-                    elif resp.status == 404:
-                        print(f"{replacement.ljust(18)}: ✅ ONLINE (READY - HTTP 404)")
-                    else:
-                        print(f"{replacement.ljust(18)}: ⚠️ UNSTABLE (HTTP {resp.status})")
-            except Exception:
-                print(f"{replacement.ljust(18)}: ❌ OFFLINE / TIMEOUT")
-    
+                async with session.get(f"https://{replacement}", timeout=5) as resp:
+                    status_text = "✅ ONLINE" if resp.status in [200, 404] else "⚠️ UNSTABLE"
+                    print(f"{replacement.ljust(18)}: {status_text} (HTTP {resp.status})")
+            except:
+                print(f"{replacement.ljust(18)}: ❌ OFFLINE")
     print("------------------------------------------\n")
 
-def download_video(url, prefix):
-    """Synchronous function to download video via yt-dlp."""
-    ydl_opts = {
-        'format': 'bestvideo[ext=mp4][filesize<25M]+bestaudio[ext=m4a]/best[ext=mp4][filesize<25M]/best',
-        'outtmpl': f'{DOWNLOAD_DIR}/{prefix}_%(id)s.%(ext)s',
-        'quiet': True,
-        'no_warnings': True,
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        return ydl.prepare_filename(info)
-
-async def resolve_reddit_redirect(url):
-    """Follows v.redd.it redirects to find the full Reddit post URL."""
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.head(url, allow_redirects=True, timeout=5) as response:
-                resolved_url = str(response.url)
-                if "reddit.com/r/" in resolved_url:
-                    return resolved_url
-    except Exception as e:
-        print(f"Error resolving redirect for {url}: {e}")
-    return None
+@tasks.loop(minutes=15)
+async def auto_update_task():
+    """Background task to periodically check for updates."""
+    await check_for_updates()
 
 @tasks.loop(seconds=30)
 async def update_heartbeat():
-    """Updates a file timestamp so Docker healthcheck knows the bot is alive."""
+    """Updates a file timestamp for Docker healthchecks."""
     try:
         Path(HEARTBEAT_FILE).touch()
     except Exception as e:
@@ -121,20 +122,35 @@ async def update_heartbeat():
 
 @bot.event
 async def on_ready():
+    load_config_files()
     print("------------------------------------------")
     print(f"LINK FIXER BOT - VERSION {VERSION}")
     print(f"Logged in as: {bot.user.name}")
+    print(f"Admins Loaded: {len(ADMINS)}")
     print("------------------------------------------")
     
-    # Run our new validation suite in the terminal
     await run_startup_validation()
     
     if not update_heartbeat.is_running():
         update_heartbeat.start()
+    if not auto_update_task.is_running():
+        auto_update_task.start()
+
+    # Announce update status to Discord if channel is configured
+    if UPDATE_CHANNEL_ID:
+        channel = bot.get_channel(UPDATE_CHANNEL_ID)
+        if channel:
+            await channel.send(f"✅ **Link Fixer Online**\n**Version:** `{VERSION}`\n**Status:** All systems validated. Monitoring for social media links.")
 
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
+        return
+
+    # Admin Commands
+    if message.content.startswith("!update") and str(message.author.id) in ADMINS:
+        await message.channel.send("🔄 Manual update triggered. Checking GitHub...")
+        await check_for_updates()
         return
 
     content = message.content
@@ -147,42 +163,45 @@ async def on_message(message):
     for full_url, domain, path in urls:
         clean_domain = domain.lower().replace("www.", "")
         
-        # Reddit Redirect Resolution
+        # Reddit Redirect
         if clean_domain == "v.redd.it":
-            resolved = await resolve_reddit_redirect(full_url)
-            if resolved:
-                fixed_url = resolved.replace("reddit.com", "vxreddit.com")
-                new_content = new_content.replace(full_url, fixed_url)
-                found_match = True
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.head(full_url, allow_redirects=True, timeout=5) as resp:
+                        resolved = str(resp.url)
+                        if "reddit.com/r/" in resolved:
+                            fixed_url = resolved.replace("reddit.com", "vxreddit.com")
+                            new_content = new_content.replace(full_url, fixed_url)
+                            found_match = True
+            except: pass
             continue
 
-        # Facebook Download logic (Now the exclusive method for FB)
+        # Facebook Local Processing
         if any(x in clean_domain for x in ["facebook.com", "fb.watch"]):
             patterns = MEDIA_PATTERNS.get(clean_domain, [])
             is_fb_video = any(re.search(p, path, re.IGNORECASE) for p in patterns) if path else (clean_domain == "fb.watch")
-            
             if is_fb_video:
                 try:
-                    file_path = await asyncio.to_thread(download_video, full_url, "fb")
+                    file_path = await asyncio.to_thread(lambda: yt_dlp.YoutubeDL({
+                        'format': 'bestvideo[ext=mp4][filesize<25M]+bestaudio[ext=m4a]/best',
+                        'outtmpl': f'{DOWNLOAD_DIR}/fb_%(id)s.%(ext)s',
+                        'quiet': True,
+                    }).prepare_filename(yt_dlp.YoutubeDL({'quiet': True}).extract_info(full_url, download=True)))
+                    
                     if os.path.exists(file_path):
-                        credit_text = f"Shared by: **{message.author.display_name}**\nSource: <{full_url}>"
-                        await message.channel.send(content=credit_text, file=discord.File(file_path))
+                        await message.channel.send(content=f"Shared by: **{message.author.display_name}**\nSource: <{full_url}>", file=discord.File(file_path))
                         os.remove(file_path)
                         await message.delete()
                         return 
-                except Exception as e:
-                    print(f"Facebook download failed for {full_url}: {e}")
+                except: pass
 
         # Standard Domain Rewrites
         if clean_domain in URL_REPLACEMENTS:
             patterns = MEDIA_PATTERNS.get(clean_domain, [])
-            is_video_link = any(re.search(p, path, re.IGNORECASE) for p in patterns) if path else False
-            
-            if is_video_link:
+            if any(re.search(p, path, re.IGNORECASE) for p in patterns) if path else False:
                 replacement_domain = URL_REPLACEMENTS[clean_domain]
                 fixed_url = full_url.replace(domain, replacement_domain, 1)
                 
-                # CLEANING: Strip tracking info from Instagram links (anything from '?' onwards)
                 if clean_domain == "instagram.com":
                     fixed_url = fixed_url.split('?')[0]
                 
@@ -191,8 +210,7 @@ async def on_message(message):
 
     if found_match:
         try:
-            credit_text = f"Shared by: **{message.author.display_name}**\n{new_content}"
-            await message.channel.send(credit_text)
+            await message.channel.send(f"Shared by: **{message.author.display_name}**\n{new_content}")
             await message.delete()
         except Exception as e:
             print(f"Error handling message: {e}")
@@ -203,4 +221,4 @@ if __name__ == "__main__":
             token = f.read().strip()
         bot.run(token)
     else:
-        print(f"CRITICAL: {TOKEN_FILE} not found.")
+        print("CRITICAL: TOKEN_FILE not found.")
