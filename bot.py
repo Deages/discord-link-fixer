@@ -9,8 +9,8 @@ from pathlib import Path
 from discord.ext import commands, tasks
 
 # --- VERSION TRACKING ---
-# v1.1.2 - Replaced kkinstagram to kksave per domain notice
-VERSION = "1.1.2"
+# v1.1.3 - Replaced kksave.com with vxinstagram.com
+VERSION = "1.1.3"
 
 # --- CONFIGURATION ---
 TOKEN_FILE = "/app/discordtoken.txt"
@@ -20,7 +20,7 @@ DOWNLOAD_DIR = "/app/downloads"
 # Domain mapping for embed-friendly replacements
 # Removed Facebook entries here as we handle them via local download/upload.
 URL_REPLACEMENTS = {
-    "instagram.com": "kksave.com",
+    "instagram.com": "vxinstagram.com",
     "twitter.com": "fxtwitter.com",
     "x.com": "fixupx.com",
     "bsky.app": "fxbsky.app",
