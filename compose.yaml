@@ -2,30 +2,30 @@ services:
   link-fixer-bot:
     image: python:3.11-slim
     container_name: link_fixer_bot
-    restart: unless-stopped
+    restart: always
     volumes:
       - /projects/link-fixer:/app
+      - /projects/link-fixer/admins.txt:/app/admins.txt
+      - /projects/link-fixer/update_channel.txt:/app/update_channel.txt
     working_dir: /app
     environment:
       - TZ=Australia/Sydney
     healthcheck:
-      test:
-        - CMD-SHELL
-        - find /app/heartbeat.txt -mmin -2 | grep . || exit 1
+      test: ["CMD-SHELL", "find /app/heartbeat.txt -mmin -2 | grep . || exit 1"]
       interval: 1m
       timeout: 10s
       retries: 3
       start_period: 30s
     command: >
-      sh -c "apt-get update && apt-get install -y curl procps ffmpeg &&  python
-      -m pip install --upgrade pip &&  pip install --no-cache-dir discord.py
-      aiohttp yt-dlp &&  while true; do 
-        echo 'Pulling latest Link-Fixer code from GitHub...'; 
+      sh -c "apt-get update && apt-get install -y curl procps ffmpeg && 
+      python -m pip install --upgrade pip && 
+      pip install --no-cache-dir discord.py aiohttp yt-dlp && 
+      while true; do 
+        echo 'Checking for Link-Fixer Update...'; 
         curl -sSL 'https://raw.githubusercontent.com/Deages/discord-link-fixer/main/bot.py' -o bot.py.tmp && 
         mv -f bot.py.tmp bot.py && 
         sync && 
         python -u bot.py; 
-        echo 'Bot process exited. Restarting in 5s...'; 
+        echo 'Bot restarted (Likely updated). Waiting 5s...'; 
         sleep 5; 
       done"
-networks: {}
