@@ -20,7 +20,7 @@ services:
       sh -c "apt-get update && apt-get install -y curl procps ffmpeg &&  python
       -m pip install --upgrade pip &&  pip install --no-cache-dir discord.py
       aiohttp yt-dlp &&  while true; do 
-        echo 'Pulling latest Link-Fixer code (v5.5.0) from GitHub...'; 
+        echo 'Pulling latest Link-Fixer code from GitHub...'; 
         curl -sSL 'https://raw.githubusercontent.com/Deages/discord-link-fixer/main/bot.py' -o bot.py.tmp && 
         mv -f bot.py.tmp bot.py && 
         sync && 
