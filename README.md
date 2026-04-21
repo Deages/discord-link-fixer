@@ -61,6 +61,12 @@ This repository includes a `compose.yaml` designed for **Dockge**. It handles al
 3.  Paste the contents of the `compose.yaml` found in this repository.
 4.  Deploy the stack.
 
+### 4. Server Files
+Create a project folder (e.g., `/projects/discord-summary`) containing:
+* **`discordtoken.txt`**: Your Bot Token (one line).
+* **`admins.txt`**: Your Discord User ID (one per line).
+* **`update_channel.txt`**: The channel for update output.
+
 ---
 
 ## 🩺 Health & Troubleshooting
