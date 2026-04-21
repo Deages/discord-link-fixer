@@ -10,10 +10,9 @@ from pathlib import Path
 from discord.ext import commands, tasks
 
 # --- VERSION TRACKING ---
-# v1.2.1 - The Monitoring Update.
-# Added periodic proxy health checks every 10 minutes with Discord reporting.
-# Implemented state-tracking to notify on failure and recovery without spamming.
-VERSION = "1.2.1"
+# v1.2.2 
+# Using vxinstagram.com instead of eeinstagram.com.
+VERSION = "1.2.2"
 
 # --- CONFIGURATION ---
 TOKEN_FILE = "/app/discordtoken.txt"
@@ -25,7 +24,7 @@ GITHUB_RAW_URL = "https://raw.githubusercontent.com/Deages/discord-link-fixer/ma
 
 # Domain mapping for embed-friendly replacements
 URL_REPLACEMENTS = {
-    "instagram.com": "eeinstagram.com",
+    "instagram.com": "vxinstagram.com",
     "twitter.com": "fxtwitter.com",
     "x.com": "fixupx.com",
     "bsky.app": "fxbsky.app",
