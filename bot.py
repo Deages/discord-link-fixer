@@ -10,10 +10,10 @@ from pathlib import Path
 from discord.ext import commands, tasks
 
 # --- VERSION TRACKING ---
-# v1.2.0 - The Robustness Update.
-# Integrated GitHub auto-update logic, admin permission layers, 
-# and update notification channel support matching the TLDR bot architecture.
-VERSION = "1.2.0"
+# v1.2.1 - The Monitoring Update.
+# Added periodic proxy health checks every 10 minutes with Discord reporting.
+# Implemented state-tracking to notify on failure and recovery without spamming.
+VERSION = "1.2.1"
 
 # --- CONFIGURATION ---
 TOKEN_FILE = "/app/discordtoken.txt"
@@ -47,9 +47,10 @@ intents = discord.Intents.default()
 intents.message_content = True 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Global variables for TLDR-style robustness
+# Global variables for robustness and monitoring
 ADMINS = []
 UPDATE_CHANNEL_ID = None
+REPORTED_FAILURES = set() # Tracks domains that are currently down to avoid notification spam
 
 def load_config_files():
     """Loads admin IDs and the dedicated update channel ID from local files."""
@@ -64,6 +65,29 @@ def load_config_files():
             if content.isdigit():
                 UPDATE_CHANNEL_ID = int(content)
 
+async def check_proxy_health(silent=True):
+    """
+    Checks connectivity for all proxies. 
+    If silent=False, it prints to console (used during startup).
+    Returns a list of failed domains and their error status.
+    """
+    results = []
+    async with aiohttp.ClientSession() as session:
+        for original, replacement in URL_REPLACEMENTS.items():
+            try:
+                async with session.get(f"https://{replacement}", timeout=8) as resp:
+                    # 200 is healthy, 404 is often healthy for proxies with no index page
+                    is_online = resp.status in [200, 404]
+                    results.append((replacement, is_online, resp.status))
+                    if not silent:
+                        status_text = "✅ ONLINE" if is_online else "⚠️ UNSTABLE"
+                        print(f"{replacement.ljust(18)}: {status_text} (HTTP {resp.status})")
+            except Exception as e:
+                results.append((replacement, False, str(e)))
+                if not silent:
+                    print(f"{replacement.ljust(18)}: ❌ OFFLINE")
+    return results
+
 async def check_for_updates():
     """Checks GitHub for a newer version string and triggers an update if found."""
     try:
@@ -74,7 +98,6 @@ async def check_for_updates():
                     remote_version = re.search(r'VERSION = "([^"]+)"', text)
                     if remote_version and remote_version.group(1) != VERSION:
                         print(f"Update found: {VERSION} -> {remote_version.group(1)}")
-                        # The actual file update is handled by the Docker curl loop on exit
                         sys.exit(0) 
     except Exception as e:
         print(f"Update check failed: {e}")
@@ -97,15 +120,35 @@ async def run_startup_validation():
         print(f"Storage Path    : ❌ PERMISSION ERROR: {e}")
 
     print("\n--- PROXY SERVICE CONNECTIVITY ---")
-    async with aiohttp.ClientSession() as session:
-        for original, replacement in URL_REPLACEMENTS.items():
-            try:
-                async with session.get(f"https://{replacement}", timeout=5) as resp:
-                    status_text = "✅ ONLINE" if resp.status in [200, 404] else "⚠️ UNSTABLE"
-                    print(f"{replacement.ljust(18)}: {status_text} (HTTP {resp.status})")
-            except:
-                print(f"{replacement.ljust(18)}: ❌ OFFLINE")
+    await check_proxy_health(silent=False)
     print("------------------------------------------\n")
+
+@tasks.loop(minutes=10)
+async def proxy_monitor_task():
+    """Background task to monitor proxy health every 10 minutes and report to Discord."""
+    global REPORTED_FAILURES
+    if not UPDATE_CHANNEL_ID:
+        return
+
+    channel = bot.get_channel(UPDATE_CHANNEL_ID)
+    if not channel:
+        return
+
+    health_results = await check_proxy_health(silent=True)
+    
+    for domain, is_online, status in health_results:
+        if not is_online:
+            if domain not in REPORTED_FAILURES:
+                # New failure detected
+                error_msg = f"❌ **Service Alert: {domain}**\nStatus: `Offline/Unstable` (HTTP {status})\nEmbeds for this platform may fail."
+                await channel.send(error_msg)
+                REPORTED_FAILURES.add(domain)
+        else:
+            if domain in REPORTED_FAILURES:
+                # Service has recovered
+                recovery_msg = f"✅ **Service Restored: {domain}**\nStatus: `Online` (HTTP {status})"
+                await channel.send(recovery_msg)
+                REPORTED_FAILURES.remove(domain)
 
 @tasks.loop(minutes=15)
 async def auto_update_task():
@@ -135,19 +178,19 @@ async def on_ready():
         update_heartbeat.start()
     if not auto_update_task.is_running():
         auto_update_task.start()
+    if not proxy_monitor_task.is_running():
+        proxy_monitor_task.start()
 
-    # Announce update status to Discord if channel is configured
     if UPDATE_CHANNEL_ID:
         channel = bot.get_channel(UPDATE_CHANNEL_ID)
         if channel:
-            await channel.send(f"✅ **Link Fixer Online**\n**Version:** `{VERSION}`\n**Status:** All systems validated. Monitoring for social media links.")
+            await channel.send(f"✅ **Link Fixer Online** (v{VERSION})\nDiagnostics complete. Proxy monitoring active (10m interval).")
 
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
         return
 
-    # Admin Commands
     if message.content.startswith("!update") and str(message.author.id) in ADMINS:
         await message.channel.send("🔄 Manual update triggered. Checking GitHub...")
         await check_for_updates()
